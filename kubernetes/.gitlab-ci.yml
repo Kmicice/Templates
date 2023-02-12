@@ -1,0 +1,66 @@
+image: gradle:alpine
+
+services:
+  - docker:18.09.7-dind
+
+before_script:
+    - export GRADLE_USER_HOME=`pwd`/.gradle
+
+variables:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  TEST_VARIABLE: cat version.txt
+  PROJECT_ID: devops-work-app
+  IMAGE_NAME: devops-work-image
+  IMAGE_TAG: latest
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  CI_IMAGE_NAME: gcr.io/devops-work-app/devops-work-service
+  CI_IMAGE_TAG: $CI_COMMIT_REF_SLUG
+
+
+.authorize-gcp:
+  image: google/cloud-sdk:latest
+  services:
+    - docker:18.09.7-dind
+  before_script:
+    - echo $GCP_SA_KEY >> keyfile.json
+    - gcloud auth activate-service-account --key-file=keyfile.json
+    - gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://gcr.io
+
+stages:
+   - test
+   - build
+   - build-latest 
+
+test:
+   stage: test
+   script: ./gradlew test
+   cache:
+     key: "$CI_COMMIT_REF_NAME"
+     policy: pull
+     paths:
+       - build
+       - .gradle
+
+build:
+  stage: build
+  extends: .authorize-gcp
+  script:
+    - ./gradlew bootBuildImage --imageName=$CI_IMAGE_NAME:$CI_IMAGE_TAG
+    - docker push $CI_IMAGE_NAME:$CI_IMAGE_TAG
+
+build-latest:
+  stage: build
+  extends: .authorize-gcp
+  script:
+    - ./gradlew bootBuildImage --imageName=$CI_IMAGE_NAME:latest
+    - docker pull $CI_IMAGE_NAME:$CI_IMAGE_TAG || true
+    - docker tag $CI_IMAGE_NAME:$CI_IMAGE_TAG $CI_IMAGE_NAME:latest
+    - docker push $CI_IMAGE_NAME:latest
+    - kubectl config get-contexts
+    - kubectl config use-context morgenkp/devops-work:devops-agent
+    - kubectl rollout restart deployment/devops-work
+  only:
+    refs:
+      - main

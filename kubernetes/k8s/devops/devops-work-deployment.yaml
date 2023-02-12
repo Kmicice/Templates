@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-work
+  labels:
+    app: devops-work
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: devops-work
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: devops-work
+    spec:
+      containers:
+        - name: devops-work
+          image: gcr.io/devops-work-app/devops-work-service:main
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DUMMY_SECRET_ENV
+              valueFrom:
+                secretKeyRef:
+                  name: devops-secret
+                  key: devops-work-secret-env
+            - name: DUMMY_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: devops-configmap
+                  key: devops-env
+            - name: database_url
+              valueFrom:
+                configMapKeyRef:
+                  name: mongodb-configmap
+                  key: database_url
+            - name: spring.data.mongodb.uri
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: spring-uri
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devops-work
+spec:
+  selector:
+    app: devops-work
+  type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
